@@ -1,0 +1,504 @@
+openapi: 3.0.3
+info:
+  title: Power BI Semantic Modeling Agent API
+  description: |
+    HTTP API for the Power BI Semantic Modeling Agent deployed in Azure AI Foundry.
+    
+    This API provides endpoints for:
+    - Health monitoring (readiness and liveness checks)
+    - Agent invocation (semantic model generation and deployment)
+    
+    Authentication is handled at the Foundry orchestration layer. This API
+    trusts requests from Foundry and does not perform user authentication.
+  version: 1.0.0
+  contact:
+    name: Semantic Modeling Agent Team
+  license:
+    name: MIT
+
+servers:
+  - url: https://agent-{environment}.foundry.azure.com
+    description: Foundry-managed agent endpoint
+    variables:
+      environment:
+        default: dev
+        enum:
+          - dev
+          - staging
+          - prod
+
+tags:
+  - name: health
+    description: Health check and monitoring endpoints
+  - name: invocation
+    description: Agent execution and semantic model generation
+
+paths:
+  /health:
+    get:
+      tags:
+        - health
+      summary: Health check endpoint
+      description: |
+        Returns the agent's health status including application status,
+        Fabric connectivity, resource usage, and uptime.
+        
+        Foundry uses this endpoint to determine agent readiness and perform
+        automatic health-based routing and restarts.
+      operationId: getHealth
+      responses:
+        '200':
+          description: Health status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                healthy:
+                  summary: Healthy agent
+                  value:
+                    status: healthy
+                    version: "1.2.3"
+                    checks:
+                      application: healthy
+                      fabric_connectivity: healthy
+                      memory_usage_mb: 512
+                      uptime_seconds: 3600
+                    timestamp: "2026-02-05T12:34:56Z"
+                degraded:
+                  summary: Degraded agent (high memory)
+                  value:
+                    status: degraded
+                    version: "1.2.3"
+                    checks:
+                      application: healthy
+                      fabric_connectivity: healthy
+                      memory_usage_mb: 1700
+                      uptime_seconds: 7200
+                    timestamp: "2026-02-05T14:00:00Z"
+        '503':
+          description: Agent is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: unhealthy
+                version: "1.2.3"
+                checks:
+                  application: healthy
+                  fabric_connectivity: unhealthy
+                  memory_usage_mb: 600
+                  uptime_seconds: 120
+                timestamp: "2026-02-05T12:00:00Z"
+
+  /invoke:
+    post:
+      tags:
+        - invocation
+      summary: Invoke semantic modeling agent
+      description: |
+        Executes the semantic modeling agent with the provided schema source
+        and configuration. The agent will:
+        
+        1. Parse and analyze the input schema
+        2. Detect facts, dimensions, measures, and relationships
+        3. Generate semantic model artifacts (TMSL/TMDL)
+        4. Validate against anti-patterns and performance heuristics
+        5. Optionally deploy to target Fabric workspace (if deployment_mode=deploy)
+        
+        Authentication to Fabric is performed using the agent's managed identity.
+      operationId: invokeAgent
+      parameters:
+        - name: X-Correlation-ID
+          in: header
+          description: Correlation ID for distributed tracing (auto-generated if not provided)
+          required: false
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvocationRequest'
+            examples:
+              csv_dry_run:
+                summary: CSV schema dry-run (no deployment)
+                value:
+                  schema_source:
+                    type: csv_url
+                    url: "https://storageaccount.blob.core.windows.net/data/sales.csv"
+                    sample_rows: 100
+                  workspace_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  deployment_mode: dry_run
+                  options:
+                    detect_measures: true
+                    detect_hierarchies: true
+                    target_optimization: direct_lake
+              lakehouse_deploy:
+                summary: Lakehouse schema with deployment
+                value:
+                  schema_source:
+                    type: lakehouse_schema
+                    workspace_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    lakehouse_id: "12345678-1234-1234-1234-123456789012"
+                  workspace_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  deployment_mode: deploy
+                  options:
+                    detect_measures: true
+                    detect_hierarchies: true
+                    target_optimization: direct_lake
+      responses:
+        '200':
+          description: Agent invocation completed successfully
+          headers:
+            X-Correlation-ID:
+              description: Correlation ID for this invocation
+              schema:
+                type: string
+                format: uuid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvocationResponse'
+              examples:
+                dry_run_success:
+                  summary: Successful dry-run (no deployment)
+                  value:
+                    invocation_id: "f1e2d3c4-b5a6-7890-1234-567890abcdef"
+                    status: succeeded
+                    duration_ms: 45000
+                    artifacts:
+                      tmsl_url: "https://storage.../artifacts/model-123.tmsl"
+                      tmdl_url: "https://storage.../artifacts/model-123.tmdl"
+                      validation_report_url: "https://storage.../reports/validation-123.json"
+                    diagnostics:
+                      warnings:
+                        - "High cardinality detected in dimension CustomerID (1.2M unique values)"
+                      anti_patterns: []
+                deploy_success:
+                  summary: Successful deployment
+                  value:
+                    invocation_id: "f1e2d3c4-b5a6-7890-1234-567890abcdef"
+                    status: succeeded
+                    duration_ms: 120000
+                    artifacts:
+                      tmsl_url: "https://storage.../artifacts/model-123.tmsl"
+                      tmdl_url: "https://storage.../artifacts/model-123.tmdl"
+                      validation_report_url: "https://storage.../reports/validation-123.json"
+                    deployment:
+                      model_id: "98765432-abcd-ef12-3456-7890abcdef12"
+                      workspace_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                      deployed_at: "2026-02-05T12:36:00Z"
+                    diagnostics:
+                      warnings: []
+                      anti_patterns: []
+        '400':
+          description: Invalid request (malformed schema, missing parameters)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: "INVALID_REQUEST"
+                error_message: "Schema source URL is not accessible"
+                details:
+                  field: "schema_source.url"
+                  reason: "HTTP 404 returned when attempting to fetch CSV"
+                timestamp: "2026-02-05T12:34:56Z"
+        '403':
+          description: Permission denied (workspace access)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: "WORKSPACE_ACCESS_DENIED"
+                error_message: "Agent does not have permission to access workspace a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                details:
+                  workspace_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  required_role: "Fabric Workspace Admin or Fabric Contributor"
+                  remediation: "Grant the agent's managed identity the required role on the workspace"
+                timestamp: "2026-02-05T12:34:56Z"
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: "INTERNAL_ERROR"
+                error_message: "Unexpected error during semantic model generation"
+                details:
+                  diagnostic_string: "Exception in measure_builder.py:142 - NoneType has no attribute 'column_name'"
+                timestamp: "2026-02-05T12:34:56Z"
+        '504':
+          description: Request timed out (exceeded 3-minute limit)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: "TIMEOUT"
+                error_message: "Agent invocation exceeded 180-second timeout"
+                details:
+                  elapsed_ms: 180000
+                timestamp: "2026-02-05T12:37:56Z"
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - version
+        - checks
+        - timestamp
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+          description: Overall agent health status
+        version:
+          type: string
+          pattern: '^\d+\.\d+\.\d+$'
+          description: Semantic version of the deployed agent
+          example: "1.2.3"
+        checks:
+          type: object
+          required:
+            - application
+            - fabric_connectivity
+            - memory_usage_mb
+            - uptime_seconds
+          properties:
+            application:
+              type: string
+              enum: [healthy, unhealthy]
+              description: Application runtime status
+            fabric_connectivity:
+              type: string
+              enum: [healthy, degraded, unhealthy]
+              description: Connectivity to Fabric APIs
+            memory_usage_mb:
+              type: integer
+              minimum: 0
+              description: Current memory usage in megabytes
+            uptime_seconds:
+              type: integer
+              minimum: 0
+              description: Time since agent container started
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp when health check was performed
+
+    InvocationRequest:
+      type: object
+      required:
+        - schema_source
+        - workspace_id
+        - deployment_mode
+      properties:
+        schema_source:
+          oneOf:
+            - $ref: '#/components/schemas/CsvSchemaSource'
+            - $ref: '#/components/schemas/LakehouseSchemaSource'
+            - $ref: '#/components/schemas/SqlSchemaSource'
+          discriminator:
+            propertyName: type
+        workspace_id:
+          type: string
+          format: uuid
+          description: Target Fabric workspace ID for deployment
+        deployment_mode:
+          type: string
+          enum: [dry_run, deploy]
+          description: |
+            - dry_run: Generate artifacts and validation report without deploying
+            - deploy: Execute deployment to Fabric workspace
+        options:
+          $ref: '#/components/schemas/ModelingOptions'
+
+    CsvSchemaSource:
+      type: object
+      required:
+        - type
+        - url
+      properties:
+        type:
+          type: string
+          enum: [csv_url]
+        url:
+          type: string
+          format: uri
+          description: Publicly accessible URL to CSV file with schema and sample data
+        sample_rows:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          default: 100
+          description: Number of sample rows to analyze for type inference
+
+    LakehouseSchemaSource:
+      type: object
+      required:
+        - type
+        - workspace_id
+        - lakehouse_id
+      properties:
+        type:
+          type: string
+          enum: [lakehouse_schema]
+        workspace_id:
+          type: string
+          format: uuid
+          description: Fabric workspace containing the lakehouse
+        lakehouse_id:
+          type: string
+          format: uuid
+          description: Lakehouse ID to extract schema from
+
+    SqlSchemaSource:
+      type: object
+      required:
+        - type
+        - connection_string
+      properties:
+        type:
+          type: string
+          enum: [sql_schema]
+        connection_string:
+          type: string
+          description: SQL database connection string (credentials via managed identity or Key Vault reference)
+        schema_name:
+          type: string
+          default: "dbo"
+          description: SQL schema name to extract from
+
+    ModelingOptions:
+      type: object
+      properties:
+        detect_measures:
+          type: boolean
+          default: true
+          description: Automatically detect and generate measure definitions
+        detect_hierarchies:
+          type: boolean
+          default: true
+          description: Automatically detect and generate dimension hierarchies
+        target_optimization:
+          type: string
+          enum: [direct_lake, import, direct_query]
+          default: direct_lake
+          description: Target data access mode for optimization recommendations
+
+    InvocationResponse:
+      type: object
+      required:
+        - invocation_id
+        - status
+        - duration_ms
+        - artifacts
+        - diagnostics
+      properties:
+        invocation_id:
+          type: string
+          format: uuid
+          description: Unique identifier for this invocation
+        status:
+          type: string
+          enum: [succeeded, failed]
+          description: Final invocation status
+        duration_ms:
+          type: integer
+          minimum: 0
+          description: Total execution time in milliseconds
+        artifacts:
+          $ref: '#/components/schemas/ArtifactUrls'
+        deployment:
+          $ref: '#/components/schemas/DeploymentInfo'
+        diagnostics:
+          $ref: '#/components/schemas/Diagnostics'
+
+    ArtifactUrls:
+      type: object
+      required:
+        - tmsl_url
+        - tmdl_url
+        - validation_report_url
+      properties:
+        tmsl_url:
+          type: string
+          format: uri
+          description: URL to generated TMSL file (valid for 24 hours)
+        tmdl_url:
+          type: string
+          format: uri
+          description: URL to generated TMDL file (valid for 24 hours)
+        validation_report_url:
+          type: string
+          format: uri
+          description: URL to validation report JSON (valid for 24 hours)
+
+    DeploymentInfo:
+      type: object
+      required:
+        - model_id
+        - workspace_id
+        - deployed_at
+      properties:
+        model_id:
+          type: string
+          format: uuid
+          description: Deployed semantic model ID in Fabric
+        workspace_id:
+          type: string
+          format: uuid
+          description: Fabric workspace where model was deployed
+        deployed_at:
+          type: string
+          format: date-time
+          description: Deployment completion timestamp
+
+    Diagnostics:
+      type: object
+      required:
+        - warnings
+        - anti_patterns
+      properties:
+        warnings:
+          type: array
+          items:
+            type: string
+          description: Non-blocking issues detected (e.g., high cardinality)
+        anti_patterns:
+          type: array
+          items:
+            type: string
+          description: Blocking anti-patterns that should be addressed
+
+    ErrorResponse:
+      type: object
+      required:
+        - error_code
+        - error_message
+        - timestamp
+      properties:
+        error_code:
+          type: string
+          description: Machine-readable error code
+          example: "WORKSPACE_ACCESS_DENIED"
+        error_message:
+          type: string
+          description: Human-readable error description
+        details:
+          type: object
+          additionalProperties: true
+          description: Additional contextual information about the error
+        timestamp:
+          type: string
+          format: date-time
+          description: Error occurrence timestamp
