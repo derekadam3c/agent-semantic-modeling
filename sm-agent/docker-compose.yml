@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: pbi-semantic-agent
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+      - ./terraform:/app/terraform
+    env_file:
+      - .env
+    environment:
+      - LOG_LEVEL=DEBUG
+      - DRY_RUN_ENABLED=true
+    command: python -m pytest tests/
+    
+  # Optional: Local test Fabric emulator or mock services
+  # fabric-mock:
+  #   image: mock-fabric-api
+  #   ports:
+  #     - "8080:8080"

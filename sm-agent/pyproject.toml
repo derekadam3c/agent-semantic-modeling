@@ -1,0 +1,125 @@
+[project]
+name = "pbi-semantic-agent"
+version = "0.1.0"
+description = "Power BI Semantic Modeling & Deployment Agent for Azure AI Foundry"
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+keywords = ["power-bi", "semantic-model", "azure", "fabric", "ai-agent"]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    # Azure AI Foundry
+    "azure-ai-projects>=1.0.0",
+    "azure-ai-inference>=1.0.0",
+    
+    # Azure Core
+    "azure-identity>=1.15.0",
+    "azure-keyvault-secrets>=4.8.0",
+    "azure-monitor-opentelemetry>=1.2.0",
+    
+    # Fabric & Power BI (Note: Official SDKs may vary)
+    "semantic-link>=1.0.0",  # If available
+    "requests>=2.31.0",
+    "httpx>=0.27.0",
+    
+    # Data handling
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.1.0",
+    "pyyaml>=6.0.1",
+    "pandas>=2.2.0",
+    
+    # CLI & Output
+    "rich>=13.7.0",
+    "typer>=0.9.0",
+    
+    # Utilities
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.12.0",
+    "black>=24.1.0",
+    "ruff>=0.2.0",
+    "mypy>=1.8.0",
+    "pre-commit>=3.6.0",
+]
+
+[project.scripts]
+semantic-agent = "src.agent.cli:app"
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--verbose",
+    "--cov=src",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--asyncio-mode=auto"
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests requiring external services",
+    "slow: Slow running tests",
+]
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+]
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false

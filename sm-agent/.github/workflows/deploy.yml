@@ -1,0 +1,101 @@
+name: Deploy to Azure AI Foundry
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-infrastructure:
+    name: Deploy Infrastructure
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Azure Login (OIDC)
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0
+      
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.TF_BACKEND_RG }}" \
+            -backend-config="storage_account_name=${{ secrets.TF_BACKEND_SA }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=pbi-agent-${{ inputs.environment }}.tfstate"
+      
+      - name: Terraform Plan
+        working-directory: ./terraform
+        run: terraform plan -var-file="environments/${{ inputs.environment }}.tfvars" -out=tfplan
+      
+      - name: Terraform Apply
+        working-directory: ./terraform
+        run: terraform apply -auto-approve tfplan
+        if: github.event_name == 'workflow_dispatch'
+      
+      - name: Get Terraform Outputs
+        id: tf-outputs
+        working-directory: ./terraform
+        run: |
+          echo "managed_identity_id=$(terraform output -raw managed_identity_client_id)" >> $GITHUB_OUTPUT
+          echo "key_vault_name=$(terraform output -raw key_vault_name)" >> $GITHUB_OUTPUT
+
+  deploy-agent:
+    name: Deploy Agent to Foundry
+    runs-on: ubuntu-latest
+    needs: deploy-infrastructure
+    environment: ${{ inputs.environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install azure-ai-projects azure-cli
+      
+      - name: Deploy to Azure AI Foundry
+        run: |
+          # Deploy agent registration to Azure AI Foundry
+          # This is a placeholder - actual deployment depends on Foundry SDK
+          echo "Deploying agent to Azure AI Foundry..."
+          # az ml online-endpoint create ...
+        env:
+          FOUNDRY_PROJECT: ${{ secrets.FOUNDRY_PROJECT_NAME }}
+          ENVIRONMENT: ${{ inputs.environment }}
