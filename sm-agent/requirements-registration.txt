@@ -1,0 +1,4 @@
+# Azure AI Foundry SDK for agent registration
+azure-ai-projects>=1.0.0
+azure-identity>=1.15.0
+requests>=2.31.0

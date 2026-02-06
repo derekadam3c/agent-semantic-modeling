@@ -3,7 +3,7 @@
 
 # Azure AI Foundry
 foundry_project_id       = "00000000-0000-0000-0000-000000000000"  # TODO: Replace with actual Foundry project ID
-foundry_subscription_id  = "00000000-0000-0000-0000-000000000000"  # TODO: Replace with Azure subscription ID
+foundry_subscription_id  = "6c8e23df-4aec-4ed5-bec5-79853ea6c6c6"  # Data Lab subscription
 foundry_resource_group   = "rg-foundry-dev"
 
 # Agent Configuration

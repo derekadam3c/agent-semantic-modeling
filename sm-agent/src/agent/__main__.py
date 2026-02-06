@@ -47,8 +47,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     
     # Validate required configuration
     if not settings.foundry_project_id:
-        logger.error("FOUNDRY_PROJECT_ID is required but not set")
-        raise ValueError("FOUNDRY_PROJECT_ID environment variable is required")
+        logger.warning(
+            "FOUNDRY_PROJECT_ID not set - agent registration features will be unavailable. "
+            "This is optional for local development and basic operations."
+        )
     
     logger.info("Agent startup complete")
     

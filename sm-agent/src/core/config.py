@@ -39,9 +39,9 @@ class Settings(BaseSettings):
     # =============================================================================
     # Azure AI Foundry Configuration
     # =============================================================================
-    foundry_project_id: str = Field(
-        ...,
-        description="Azure AI Foundry project ID (required)"
+    foundry_project_id: Optional[str] = Field(
+        default=None,
+        description="Azure AI Foundry project ID (optional - only needed for agent registration)"
     )
     foundry_endpoint: str = Field(
         default="https://api.azure.com",

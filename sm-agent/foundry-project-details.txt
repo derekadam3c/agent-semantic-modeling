@@ -1,0 +1,14 @@
+Azure AI Foundry Project Details
+================================
+Created: 2026-02-06 09:55:37
+
+Project Name: pbi-semantic-agent-project
+Project ID: 
+Location: eastus
+Hub: pbi-semantic-agent-dev
+Resource Group: rg-pbi-agent-dev
+
+Next Steps:
+1. Update agent: .\update-agent-with-project.ps1 -ProjectId ''
+2. AI Foundry Studio: https://ai.azure.com
+3. Agent Endpoint: https://pbi-semantic-agent.delightfulisland-ec56bced.eastus.azurecontainerapps.io/invoke
