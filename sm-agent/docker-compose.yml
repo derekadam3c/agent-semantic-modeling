@@ -7,19 +7,58 @@ services:
       dockerfile: Dockerfile
       target: development
     container_name: pbi-semantic-agent
+    ports:
+      - "8000:8000"
     volumes:
       - ./src:/app/src
       - ./tests:/app/tests
-      - ./terraform:/app/terraform
+    env_file:
+      - .env
+    environment:
+      # Azure Identity
+      - AZURE_CLIENT_ID=${AZURE_CLIENT_ID}
+      - AZURE_TENANT_ID=${AZURE_TENANT_ID}
+      - AZURE_CLIENT_SECRET=${AZURE_CLIENT_SECRET}
+      
+      # Foundry Configuration
+      - FOUNDRY_PROJECT_ID=${FOUNDRY_PROJECT_ID}
+      - FOUNDRY_ENDPOINT=${FOUNDRY_ENDPOINT:-https://api.azure.com}
+      
+      # Application Insights
+      - APP_INSIGHTS_CONNECTION_STRING=${APP_INSIGHTS_CONNECTION_STRING}
+      - APPLICATIONINSIGHTS_CONNECTION_STRING=${APP_INSIGHTS_CONNECTION_STRING}
+      
+      # Application Configuration
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DRY_RUN_ENABLED=${DRY_RUN_ENABLED:-false}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      
+      # Fabric Configuration
+      - FABRIC_WORKSPACE_ID=${FABRIC_WORKSPACE_ID}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    
+  # Optional: Test runner service
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: pbi-semantic-agent-test
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+      - ./coverage:/app/coverage
     env_file:
       - .env
     environment:
       - LOG_LEVEL=DEBUG
       - DRY_RUN_ENABLED=true
-    command: python -m pytest tests/
-    
-  # Optional: Local test Fabric emulator or mock services
-  # fabric-mock:
-  #   image: mock-fabric-api
-  #   ports:
-  #     - "8080:8080"
+    command: python -m pytest tests/ -v --cov=src --cov-report=html:/app/coverage
+    profiles:
+      - test
