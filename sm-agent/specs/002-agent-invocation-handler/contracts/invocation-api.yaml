@@ -1,0 +1,476 @@
+openapi: 3.1.0
+info:
+  title: Agent Invocation API
+  description: |
+    HTTP API for the Microsoft Fabric Semantic Modeling Agent invocation handler.
+    This endpoint receives requests from Azure AI Foundry, orchestrates the 8-step
+    semantic modeling workflow, and returns TMSL artifacts or structured error responses.
+  version: 1.0.0
+  contact:
+    name: Power BI Semantic Modeling Agent Team
+    url: https://github.com/derekadam3c/agent-semantic-modeling
+
+servers:
+  - url: https://pbi-semantic-agent.{environment}.azurecontainerapps.io
+    description: Azure Container Apps deployment
+    variables:
+      environment:
+        default: prod
+        enum:
+          - dev
+          - staging
+          - prod
+
+paths:
+  /invoke:
+    post:
+      summary: Invoke semantic model generation workflow
+      description: |
+        Accepts schema source configuration, validates input, orchestrates the 8-step
+        workflow (parse → classify → relationships → measures → hierarchies → TMSL →
+        validate → deploy), and returns generated TMSL artifact with execution metadata.
+      operationId: invokeWorkflow
+      tags:
+        - Invocation
+      parameters:
+        - name: X-Correlation-ID
+          in: header
+          description: Optional correlation ID for request tracing (UUID v4 generated if not provided)
+          required: false
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvocationRequest'
+            examples:
+              csvUrl:
+                summary: CSV URL schema source
+                value:
+                  schema_source:
+                    type: csv_url
+                    url: "https://example.com/data/sales.csv"
+                    sample_rows: 100
+                  workspace_id: "00000000-0000-0000-0000-000000000000"
+                  deployment_mode: dry_run
+                  options:
+                    detect_measures: true
+                    detect_hierarchies: true
+                    target_optimization: direct_lake
+              sqlJson:
+                summary: SQL schema JSON
+                value:
+                  schema_source:
+                    type: sql_json
+                    tables:
+                      - name: Orders
+                        columns:
+                          - name: OrderID
+                            data_type: int
+                            nullable: false
+                          - name: CustomerID
+                            data_type: int
+                            nullable: false
+                  workspace_id: "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d"
+                  deployment_mode: validate_only
+              lakehouse:
+                summary: Fabric Lakehouse connection
+                value:
+                  schema_source:
+                    type: lakehouse_connection
+                    workspace_id: "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d"
+                    item_id: "f6g7h8i9-j0k1-4l5m-6n7o-8p9q0r1s2t3u"
+                  workspace_id: "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d"
+                  deployment_mode: auto_deploy
+      responses:
+        '200':
+          description: Workflow completed successfully
+          headers:
+            X-Correlation-ID:
+              description: Correlation ID for request tracing
+              schema:
+                type: string
+                format: uuid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                correlation_id: "550e8400-e29b-41d4-a716-446655440000"
+                http_status_code: 400
+                status: validation_error
+                error_detail:
+                  type: "https://agent.fabric.microsoft.com/errors/invalid-request"
+                  title: "Request Validation Failed"
+                  status: 400
+                  detail: "schema_source.url is required when type is csv_url"
+                  instance: "/invoke"
+                  remediation: "Provide valid URL in schema_source.url field"
+        '500':
+          description: Workflow execution failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                correlation_id: "550e8400-e29b-41d4-a716-446655440000"
+                http_status_code: 500
+                status: workflow_error
+                error_detail:
+                  type: "https://agent.fabric.microsoft.com/errors/workflow-failure"
+                  title: "Workflow Execution Failed"
+                  status: 500
+                  detail: "Circular dependency detected between Order and Customer tables"
+                  instance: "/invoke"
+                  workflow_step: "relationships"
+                  failed_at: "2026-02-06T14:23:45Z"
+                  remediation: "Remove circular foreign key constraints"
+                  affected_objects: ["Order", "Customer"]
+                execution_summary:
+                  total_duration_ms: 12500
+                  steps_executed: 3
+                  steps_succeeded: 2
+                  steps_failed: 1
+        '504':
+          description: Workflow execution timeout (exceeded 5 minutes)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    InvocationRequest:
+      type: object
+      required:
+        - schema_source
+        - workspace_id
+        - deployment_mode
+      properties:
+        schema_source:
+          $ref: '#/components/schemas/SchemaSource'
+        workspace_id:
+          type: string
+          format: uuid
+          description: Target Microsoft Fabric workspace ID for model deployment
+        deployment_mode:
+          type: string
+          enum: [dry_run, validate_only, auto_deploy]
+          description: |
+            - dry_run: Generate artifacts without deployment
+            - validate_only: Generate + validate without deployment
+            - auto_deploy: Generate + validate + deploy (requires approval for production)
+        options:
+          $ref: '#/components/schemas/DeploymentOptions'
+
+    SchemaSource:
+      oneOf:
+        - $ref: '#/components/schemas/CsvUrlSource'
+        - $ref: '#/components/schemas/SqlJsonSource'
+        - $ref: '#/components/schemas/LakehouseSource'
+      discriminator:
+        propertyName: type
+        mapping:
+          csv_url: '#/components/schemas/CsvUrlSource'
+          sql_json: '#/components/schemas/SqlJsonSource'
+          lakehouse_connection: '#/components/schemas/LakehouseSource'
+
+    CsvUrlSource:
+      type: object
+      required:
+        - type
+        - url
+      properties:
+        type:
+          type: string
+          const: csv_url
+        url:
+          type: string
+          format: uri
+          description: HTTP/HTTPS URL to CSV file (publicly accessible or with SAS token)
+          example: "https://example.com/data/sales.csv"
+        sample_rows:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 100
+          description: Number of rows to sample for schema inference
+
+    SqlJsonSource:
+      type: object
+      required:
+        - type
+        - tables
+      properties:
+        type:
+          type: string
+          const: sql_json
+        tables:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/TableSchema'
+        foreign_keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/ForeignKeyConstraint'
+
+    LakehouseSource:
+      type: object
+      required:
+        - type
+        - workspace_id
+        - item_id
+      properties:
+        type:
+          type: string
+          const: lakehouse_connection
+        workspace_id:
+          type: string
+          format: uuid
+          description: Fabric workspace ID containing the Lakehouse
+        item_id:
+          type: string
+          format: uuid
+          description: Lakehouse item ID
+        table_filter:
+          type: array
+          items:
+            type: string
+          description: Table name patterns to include (default: all tables)
+
+    TableSchema:
+      type: object
+      required:
+        - name
+        - columns
+      properties:
+        name:
+          type: string
+        columns:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ColumnSchema'
+
+    ColumnSchema:
+      type: object
+      required:
+        - name
+        - data_type
+      properties:
+        name:
+          type: string
+        data_type:
+          type: string
+        nullable:
+          type: boolean
+          default: true
+
+    ForeignKeyConstraint:
+      type: object
+      required:
+        - table
+        - column
+        - referenced_table
+        - referenced_column
+      properties:
+        table:
+          type: string
+        column:
+          type: string
+        referenced_table:
+          type: string
+        referenced_column:
+          type: string
+
+    DeploymentOptions:
+      type: object    properties:
+        detect_measures:
+          type: boolean
+          default: false
+          description: Auto-generate DAX measures for numeric columns
+        detect_hierarchies:
+          type: boolean
+          default: false
+          description: Auto-detect date and geographic hierarchies
+        target_optimization:
+          type: string
+          enum: [import, direct_query, direct_lake]
+          description: Optimization mode for generated model
+
+    SuccessResponse:
+      type: object
+      required:
+        - correlation_id
+        - http_status_code
+        - status
+        - execution_summary
+      properties:
+        correlation_id:
+          type: string
+          format: uuid
+        http_status_code:
+          type: integer
+          const: 200
+        status:
+          type: string
+          enum: [success, partial_success]
+        tmsl_output:
+          $ref: '#/components/schemas/TMSLArtifact'
+        validation_results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationResult'
+        deployment_status:
+          $ref: '#/components/schemas/DeploymentStatus'
+        execution_summary:
+          $ref: '#/components/schemas/ExecutionSummary'
+        generated_at:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      required:
+        - correlation_id
+        - http_status_code
+        - status
+        - error_detail
+      properties:
+        correlation_id:
+          type: string
+          format: uuid
+        http_status_code:
+          type: integer
+          enum: [400, 500, 504]
+        status:
+          type: string
+          enum: [validation_error, workflow_error, timeout]
+        error_detail:
+          $ref: '#/components/schemas/ProblemDetails'
+        execution_summary:
+          $ref: '#/components/schemas/ExecutionSummary'
+
+    ProblemDetails:
+      type: object
+      description: RFC 7807 Problem Details for HTTP APIs
+      required:
+        - type
+        - title
+        - status
+        - detail
+      properties:
+        type:
+          type: string
+          format: uri
+          description: URI reference identifying the problem type
+        title:
+          type: string
+          description: Short, human-readable summary
+        status:
+          type: integer
+          description: HTTP status code
+        detail:
+          type: string
+          description: Human-readable explanation
+        instance:
+          type: string
+          description: URI reference identifying the specific occurrence
+        workflow_step:
+          type: string
+          description: Workflow step that failed (if applicable)
+        failed_at:
+          type: string
+          format: date-time          description: Timestamp of failure
+        remediation:
+          type: string
+          description: Suggested fix for the error
+        affected_objects:
+          type: array
+          items:
+            type: string
+          description: List of affected tables/columns/relationships
+
+    TMSLArtifact:
+      type: object
+      description: Tabular Model Scripting Language (TMSL) artifact
+      properties:
+        model:
+          type: object
+          description: TMSL model definition (structure varies)
+
+    ValidationResult:
+      type: object
+      required:
+        - severity
+        - category
+        - message
+      properties:
+        severity:
+          type: string
+          enum: [info, warning, error]
+        category:
+          type: string
+          enum: [anti_pattern, performance, compatibility]
+        message:
+          type: string
+        affected_objects:
+          type: array
+          items:
+            type: string
+        recommendation:
+          type: string
+
+    DeploymentStatus:
+      type: object
+      properties:
+        deployment_id:
+          type: string
+        status:
+          type: string
+          enum: [pending, in_progress, succeeded, failed]
+        workspace_id:
+          type: string
+          format: uuid
+        model_name:
+          type: string
+        deployment_type:
+          type: string
+          enum: [full, incremental]
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+
+    ExecutionSummary:
+      type: object
+      required:
+        - total_duration_ms
+        - steps_executed
+        - steps_succeeded
+      properties:
+        total_duration_ms:
+          type: integer
+          description: Total workflow execution time in milliseconds
+        steps_executed:
+          type: integer
+          description: Number of workflow steps attempted
+        steps_succeeded:
+          type: integer
+          description: Number of workflow steps that completed successfully
+        steps_failed:
+          type: integer
+          description: Number of workflow steps that failed
