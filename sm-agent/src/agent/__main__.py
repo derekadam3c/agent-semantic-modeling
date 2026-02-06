@@ -87,8 +87,10 @@ FastAPIInstrumentor.instrument_app(app)
 
 # Import routers after app creation to avoid circular imports
 from . import health  # noqa: E402
+from . import foundry_handler  # noqa: E402
 
 app.include_router(health.router, tags=["Health"])
+app.include_router(foundry_handler.router, tags=["Invocation"])
 
 
 # Development server entry point
