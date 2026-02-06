@@ -10,7 +10,7 @@ import requests
 import json
 import re
 from datetime import datetime
-from typing import List, Tuple
+from typing import List
 
 # Agent configuration
 AGENT_URL = "https://pbi-semantic-agent.delightfulisland-ec56bced.eastus.azurecontainerapps.io"
@@ -172,7 +172,7 @@ def format_agent_response(result: dict) -> str:
     return response
 
 
-def chat_response(message: str, history: List[Tuple[str, str]]) -> str:
+def chat_response(message: str, history: List) -> str:
     """Process chat message and return response"""
     
     message_lower = message.lower()
@@ -256,7 +256,7 @@ Need help? Just ask! 😊"""
 
 
 # Create Gradio chat interface
-with gr.Blocks(title="PBI Semantic Agent Chat", theme=gr.themes.Soft()) as demo:
+with gr.Blocks(title="PBI Semantic Agent Chat") as demo:
     gr.Markdown("""
     # 🤖 Power BI Semantic Modeling Agent Chat
     
@@ -295,22 +295,14 @@ with gr.Blocks(title="PBI Semantic Agent Chat", theme=gr.themes.Soft()) as demo:
     - **Health Check**: [Agent Status](https://pbi-semantic-agent.delightfulisland-ec56bced.eastus.azurecontainerapps.io/health)
     """)
     
-    # Chat interactions
-    def user(user_message, history):
-        return "", history + [[user_message, None]]
+    # Chat interactions (Gradio 6.0 format)
+    def respond(message, history):
+        """Handle chat interaction with new Gradio 6.0 format"""
+        bot_message = chat_response(message, history)
+        return bot_message
     
-    def bot(history):
-        user_message = history[-1][0]
-        bot_message = chat_response(user_message, history[:-1])
-        history[-1][1] = bot_message
-        return history
-    
-    msg.submit(user, [msg, chatbot], [msg, chatbot], queue=False).then(
-        bot, chatbot, chatbot
-    )
-    submit.click(user, [msg, chatbot], [msg, chatbot], queue=False).then(
-        bot, chatbot, chatbot
-    )
+    msg.submit(respond, [msg, chatbot], [chatbot])
+    submit.click(respond, [msg, chatbot], [chatbot])
     clear.click(lambda: None, None, chatbot, queue=False)
 
 
@@ -332,5 +324,6 @@ if __name__ == "__main__":
         server_name="0.0.0.0",
         server_port=7860,
         share=False,
-        show_error=True
+        show_error=True,
+        theme=gr.themes.Soft()
     )
